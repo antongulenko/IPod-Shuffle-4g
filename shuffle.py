@@ -204,6 +204,10 @@ class Record(object):
     def lists(self):
         return self.shuffledb.lists
 
+    @property
+    def artist_albums(self):
+        return self.shuffledb.artist_albums
+
 class TunesSD(Record):
     def __init__(self, parent):
         Record.__init__(self, parent)
@@ -260,12 +264,18 @@ class TrackHeader(Record):
 
         # Construct the underlying tracks
         track_chunk = ""
-        for i in self.tracks:
-            track = Track(self)
-            print "[*] Adding track", i
-            track.populate(i)
-            output += struct.pack("I", self.base_offset + self["total_length"] + len(track_chunk))
-            track_chunk += track.construct()
+        for artist in sorted(self.artist_albums.keys()):
+            print "Constructing > artist", artist
+            for album in sorted(self.artist_albums[artist].keys()):
+                print "Constructing >> album", album
+                tracks = self.artist_albums[artist][album]
+                sorted_tracks = sorted(tracks, key = lambda x: int(x.track_num))
+                for track in sorted_tracks:
+                    print "Constructing >>> track", track.track_num, track["filename"]
+                    # track = self.track_records[i]
+                    # print "[*] Writing track record", i
+                    output += struct.pack("I", self.base_offset + self["total_length"] + len(track_chunk))
+                    track_chunk += track.construct()
         return output + track_chunk
 
 class Track(Record):
@@ -325,9 +335,27 @@ class Track(Record):
             else:
                 self["albumid"] = len(self.albums)
                 self.albums.append(album)
+                
+            # Build up and maintain artist->album->track tree
+            if artist not in self.artist_albums:
+                artist_albums = {}
+                self.artist_albums[artist] = artist_albums
+            else:
+                artist_albums = self.artist_albums[artist]
+            if album not in artist_albums:
+                album_tracks = []
+                artist_albums[album] = album_tracks
+            else:
+                album_tracks = artist_albums[album]
+            album_tracks.append(self)
+
+            self.track_num = audio.get("tracknumber", [u"0"])[0]
 
             if audio.get("title", "") and audio.get("artist", ""):
                 text = u" - ".join(audio.get("title", u"") + audio.get("artist", u""))
+        else:
+            self.track_num = u"0"
+            print "Warning: error reading tag data of", filename
 
         # Handle the VoiceOverData
         if isinstance(text, unicode):
@@ -485,6 +513,8 @@ class Shuffler(object):
     def __init__(self, path, voiceover=True, rename=False, trackgain=0):
         self.path, self.base = self.determine_base(path)
         self.tracks = []
+        self.artist_albums = {}
+        self.track_records = {}
         self.albums = []
         self.artists = []
         self.lists = []
@@ -525,12 +555,20 @@ class Shuffler(object):
                     fullPath = os.path.abspath(os.path.join(self.path, relPath));
                     if os.path.splitext(filename)[1].lower() in (".mp3", ".m4a", ".m4b", ".m4p", ".aa", ".wav"):
                         self.tracks.append(fullPath)
+                        print "[*] Reading & populating track", fullPath
+                        track = Track(self)
+                        track.populate(fullPath)
+                        self.track_records[fullPath] = track
                     if os.path.splitext(filename)[1].lower() in (".pls", ".m3u"):
                         self.lists.append(os.path.abspath(os.path.join(dirpath, filename)))
 
-    def write_database(self):
+    def write_database(self, mock_write=False):
         with open(os.path.join(self.base, "iPod_Control", "iTunes", "iTunesSD"), "wb") as f:
-            f.write(self.tunessd.construct())
+            if mock_write:
+                db = self.tunessd.construct()
+                print "DB simulated, len", len(db)
+            else:
+                f.write(self.tunessd.construct())
 
 #
 # Read all files from the directory
@@ -590,6 +628,7 @@ if __name__ == '__main__':
     parser.add_argument('--disable-voiceover', action='store_true', help='Disable voiceover feature')
     parser.add_argument('--rename-unicode', action='store_true', help='Rename files causing unicode errors, will do minimal required renaming')
     parser.add_argument('--track-gain', type=nonnegative_int, default=0, help='Specify volume gain (0-99) for all tracks; 0 (default) means no gain and is usually fine; e.g. 60 is very loud even on minimal player volume')
+    parser.add_argument('--mock-write', action='store_true', help='Do not write database (still write voiceover, if enabled)')
     parser.add_argument('path', help='Path to the IPod\'s root directory')
     result = parser.parse_args()
 
@@ -605,4 +644,4 @@ if __name__ == '__main__':
     shuffle = Shuffler(result.path, voiceover=not result.disable_voiceover, rename=result.rename_unicode, trackgain=result.track_gain)
     shuffle.initialize()
     shuffle.populate()
-    shuffle.write_database()
+    shuffle.write_database(result.mock_write)
