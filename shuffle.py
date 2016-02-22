@@ -16,6 +16,7 @@ import re
 import tempfile
 import signal
 
+DEFAULT_LANGUAGE = 'en-US'
 audio_ext = (".mp3", ".m4a", ".m4b", ".m4p", ".aa", ".wav")
 list_ext = (".pls", ".m3u")
 def make_dir_if_absent(path):
@@ -101,7 +102,8 @@ class Text2Speech(object):
     # guess-language seems like an overkill for now
     @staticmethod
     def guess_lang(unicodetext):
-        lang = 'en-GB'
+        global DEFAULT_LANGUAGE
+        lang = DEFAULT_LANGUAGE
         if re.search(u"[А-Яа-я]", unicodetext) is not None:
             lang = 'ru-RU'
         return lang
@@ -110,7 +112,8 @@ class Text2Speech(object):
     def pico2wave(out_wav_path, unicodetext):
         if not Text2Speech.valid_tts['pico2wave']:
             return False
-        subprocess.call(["pico2wave", "-l", "en-GB", "-w", out_wav_path, unicodetext])
+        global DEFAULT_LANGUAGE
+        subprocess.call(["pico2wave", "-l", DEFAULT_LANGUAGE, "-w", out_wav_path, unicodetext])
         return True
 
     @staticmethod
